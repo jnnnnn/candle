@@ -4,17 +4,14 @@ use candle::{Device, IndexOp, Result, Tensor, D};
 use candle_nn::{embedding, Conv1d, Conv1dConfig, Embedding, LayerNorm, Module, VarBuilder};
 use std::rc::Rc;
 
-type HookFn = Rc<Box<dyn Fn(&Tensor) -> Result<()>>>;
-#[derive(Clone)]
-pub struct DebuggableHookFn(HookFn);
-impl std::fmt::Debug for DebuggableHookFn {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt("HookFn", f)
-    }
+type HookFn = Rc<dyn HookTrait>;
+pub trait HookTrait {
+    fn call(&self, x: &Tensor) -> Result<()>;
 }
-impl From<HookFn> for DebuggableHookFn {
-    fn from(hook: HookFn) -> Self {
-        DebuggableHookFn(hook)
+
+impl std::fmt::Debug for dyn HookTrait {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HookTrait").finish()
     }
 }
 
@@ -48,7 +45,7 @@ struct MultiHeadAttention {
     softmax_span: tracing::Span,
     matmul_span: tracing::Span,
     kv_cache: Option<(Tensor, Tensor)>,
-    hook: Option<DebuggableHookFn>,
+    hook: Option<HookFn>,
 }
 
 impl MultiHeadAttention {
@@ -145,7 +142,7 @@ impl MultiHeadAttention {
         .transpose(1, 2)?
         .flatten_from(2)?;
         if let Some(hook) = &self.hook {
-            (hook.0)(&qk)?;
+            hook.call(&qk)?;
         }
         Ok(wv)
     }
@@ -389,7 +386,7 @@ impl TextDecoder {
             block.reset_kv_cache();
         }
     }
-    pub fn set_hook(&mut self, index: usize, hook: Option<HookFn>) {
+    pub fn set_attention_hook(&mut self, index: usize, hook: Option<HookFn>) {
         if index < self.blocks.len() {
             let block = &mut self.blocks[index];
             block.attn.hook = hook.map(Into::into);
