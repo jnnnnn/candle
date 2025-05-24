@@ -4,14 +4,12 @@ use candle::{Device, IndexOp, Result, Tensor, D};
 use candle_nn::{embedding, Conv1d, Conv1dConfig, Embedding, LayerNorm, Module, VarBuilder};
 use std::rc::Rc;
 
-type HookFn = Rc<dyn HookTrait>;
-pub trait HookTrait {
-    fn call(&self, x: &Tensor) -> Result<()>;
-}
-
-impl std::fmt::Debug for dyn HookTrait {
+type HookFn = Box<dyn Fn(&Tensor) -> Result<()>>;
+#[derive(Clone)]
+struct DebugHookFn(Rc<HookFn>);
+impl std::fmt::Debug for DebugHookFn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HookTrait").finish()
+        f.debug_struct("HookFn").finish()
     }
 }
 
@@ -45,7 +43,7 @@ struct MultiHeadAttention {
     softmax_span: tracing::Span,
     matmul_span: tracing::Span,
     kv_cache: Option<(Tensor, Tensor)>,
-    hook: Option<HookFn>,
+    hook: Option<DebugHookFn>,
 }
 
 impl MultiHeadAttention {
@@ -142,7 +140,7 @@ impl MultiHeadAttention {
         .transpose(1, 2)?
         .flatten_from(2)?;
         if let Some(hook) = &self.hook {
-            hook.call(&qk)?;
+            (hook.0)(&qk)?;
         }
         Ok(wv)
     }
@@ -389,7 +387,10 @@ impl TextDecoder {
     pub fn set_attention_hook(&mut self, index: usize, hook: Option<HookFn>) {
         if index < self.blocks.len() {
             let block = &mut self.blocks[index];
-            block.attn.hook = hook.map(Into::into);
+            block.attn.hook = match hook {
+                Some(h) => Some(DebugHookFn(Rc::new(h))),
+                None => None,
+            };
         }
     }
     pub fn n_blocks(&self) -> usize {
