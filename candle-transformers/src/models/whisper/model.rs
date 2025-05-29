@@ -384,14 +384,18 @@ impl TextDecoder {
             block.reset_kv_cache();
         }
     }
-    pub fn set_attention_hook(&mut self, index: usize, hook: Option<HookFn>) {
+    pub fn set_attention_hook(&mut self, index: usize, hook: Option<HookFn>) -> bool {
         if index < self.blocks.len() {
             let block = &mut self.blocks[index];
-            block.attn.hook = match hook {
-                Some(h) => Some(DebugHookFn(Rc::new(h))),
-                None => None,
-            };
+            if let Some((attn, _)) = &mut block.cross_attn {
+                attn.hook = match hook {
+                    Some(h) => Some(DebugHookFn(Rc::new(h))),
+                    None => None,
+                };
+                return true;
+            }
         }
+        return false;
     }
     pub fn n_blocks(&self) -> usize {
         self.blocks.len()
