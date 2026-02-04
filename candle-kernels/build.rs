@@ -39,11 +39,12 @@ fn main() {
         moe_builder = moe_builder.arg("-Xcompiler").arg("-fPIC");
     }
 
-    let moe_builder = moe_builder.kernel_paths(vec![
-        "src/moe/moe_gguf.cu",
-        "src/moe/moe_wmma.cu",
-        "src/moe/moe_wmma_gguf.cu",
-    ]);
+    // Only build WMMA kernels for compute capability 7.0+
+    // For older GPUs (like GTX 1080 with sm_61), skip WMMA kernels
+    // WMMA files are renamed to .disabled to prevent auto-discovery
+    let kernel_paths = vec!["src/moe/moe_gguf.cu"];
+    
+    let moe_builder = moe_builder.kernel_paths(kernel_paths);
     moe_builder.build_lib(out_dir.join("libmoe.a"));
     println!("cargo:rustc-link-search={}", out_dir.display());
     println!("cargo:rustc-link-lib=moe");
